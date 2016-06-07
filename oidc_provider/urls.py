@@ -8,6 +8,7 @@ urlpatterns = [
     url(r'^authorize/?$', AuthorizeView.as_view(), name='authorize'),
     url(r'^token/?$', csrf_exempt(TokenView.as_view()), name='token'),
     url(r'^userinfo/?$', csrf_exempt(userinfo), name='userinfo'),
+    url(r'^token_info/?$', csrf_exempt(TokenInfoView.as_view()), name='token_info'),
     url(r'^logout/?$', LogoutView.as_view(), name='logout'),
 
     url(r'^\.well-known/openid-configuration/?$', ProviderInfoView.as_view(), name='provider_info'),

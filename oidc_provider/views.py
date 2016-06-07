@@ -1,3 +1,5 @@
+import datetime
+
 import logging
 
 from Crypto.PublicKey import RSA
@@ -171,6 +173,42 @@ def userinfo(request, *args, **kwargs):
     response['Cache-Control'] = 'no-store'
     response['Pragma'] = 'no-cache'
     return response
+
+
+class TokenInfoView(View):
+
+    def get(self, request, *args, **kwargs):
+        access_token = request.GET.get('access_token')
+        try:
+            token = Token.objects.get(access_token=access_token)
+        except BaseException as e:
+            context = {
+                'error': "InvalidTokenError",
+                'description': "The supplied token is invalid",
+            }
+
+            response = JsonResponse(context, status=200)
+            response['Cache-Control'] = 'no-store'
+            response['Pragma'] = 'no-cache'
+            return response
+
+        if token.has_expired():
+            context = {
+                'error': "ExpiredTokenError",
+                'description': "The supplied token is expired"
+            }
+
+            response = JsonResponse(context, status=200)
+            response['Cache-Control'] = 'no-store'
+            response['Pragma'] = 'no-cache'
+            return response
+
+        dic = {"user_id": token.user.username, "scopes": token.scope}
+
+        response = JsonResponse(dic, status=200)
+        response['Cache-Control'] = 'no-store'
+        response['Pragma'] = 'no-cache'
+        return response
 
 
 class ProviderInfoView(View):

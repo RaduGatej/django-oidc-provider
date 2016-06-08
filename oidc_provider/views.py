@@ -1,7 +1,3 @@
-import datetime
-
-import logging
-
 from Crypto.PublicKey import RSA
 from django.contrib.auth.views import redirect_to_login, logout
 from django.core.urlresolvers import reverse
@@ -16,7 +12,7 @@ from oidc_provider.lib.claims import StandardScopeClaims
 from oidc_provider.lib.endpoints.authorize import *
 from oidc_provider.lib.endpoints.token import *
 from oidc_provider.lib.errors import *
-from oidc_provider.lib.utils.common import redirect, get_issuer
+from oidc_provider.lib.utils.common import redirect, get_site_url, get_issuer
 from oidc_provider.lib.utils.oauth2 import protected_resource_view
 from oidc_provider.models import RESPONSE_TYPE_CHOICES, RSAKey
 from oidc_provider import settings
@@ -52,12 +48,21 @@ class AuthorizeView(View):
                     and not (authorize.params.prompt == 'consent'):
                         return redirect(authorize.create_response_uri())
 
+                if authorize.params.prompt == 'none':
+                    raise AuthorizeError(authorize.params.redirect_uri, 'interaction_required', authorize.grant_type)
+
+                if authorize.params.prompt == 'login':
+                    return redirect_to_login(request.get_full_path())
+
+                if authorize.params.prompt == 'select_account':
+                    # TODO: see how we can support multiple accounts for the end-user.
+                    raise AuthorizeError(authorize.params.redirect_uri, 'account_selection_required', authorize.grant_type)
+
                 # Generate hidden inputs for the form.
                 context = {
                     'params': authorize.params,
                 }
-                hidden_inputs = render_to_string(
-                    'oidc_provider/hidden_inputs.html', context)
+                hidden_inputs = render_to_string('oidc_provider/hidden_inputs.html', context)
 
                 # Remove `openid` from scope list
                 # since we don't need to print it.
@@ -69,16 +74,6 @@ class AuthorizeView(View):
                     'hidden_inputs': hidden_inputs,
                     'params': authorize.params,
                 }
-
-                if authorize.params.prompt == 'none':
-                    raise AuthorizeError(authorize.params.redirect_uri, 'interaction_required', authorize.grant_type)
-
-                if authorize.params.prompt == 'login':
-                    return redirect_to_login(request.get_full_path())
-
-                if authorize.params.prompt == 'select_account':
-                    # TODO: see how we can support multiple accounts for the end-user.
-                    raise AuthorizeError(authorize.params.redirect_uri, 'account_selection_required', authorize.grant_type)
 
                 return render(request, 'oidc_provider/authorize.html', context)
             else:
@@ -107,7 +102,7 @@ class AuthorizeView(View):
 
         try:
             authorize.validate_params()
-            
+
             if not request.POST.get('allow'):
                 raise AuthorizeError(authorize.params.redirect_uri,
                                      'access_denied',
@@ -172,6 +167,7 @@ def userinfo(request, *args, **kwargs):
     response = JsonResponse(dic, status=200)
     response['Cache-Control'] = 'no-store'
     response['Pragma'] = 'no-cache'
+
     return response
 
 
@@ -216,19 +212,18 @@ class ProviderInfoView(View):
     def get(self, request, *args, **kwargs):
         dic = dict()
 
-        dic['issuer'] = get_issuer()
+        site_url = get_site_url(request=request)
+        dic['issuer'] = get_issuer(site_url=site_url, request=request)
 
-        SITE_URL = settings.get('SITE_URL')
-
-        dic['authorization_endpoint'] = SITE_URL + reverse('oidc_provider:authorize')
-        dic['token_endpoint'] = SITE_URL + reverse('oidc_provider:token')
-        dic['userinfo_endpoint'] = SITE_URL + reverse('oidc_provider:userinfo')
-        dic['end_session_endpoint'] = SITE_URL + reverse('oidc_provider:logout')
+        dic['authorization_endpoint'] = site_url + reverse('oidc_provider:authorize')
+        dic['token_endpoint'] = site_url + reverse('oidc_provider:token')
+        dic['userinfo_endpoint'] = site_url + reverse('oidc_provider:userinfo')
+        dic['end_session_endpoint'] = site_url + reverse('oidc_provider:logout')
 
         types_supported = [x[0] for x in RESPONSE_TYPE_CHOICES]
         dic['response_types_supported'] = types_supported
 
-        dic['jwks_uri'] = SITE_URL + reverse('oidc_provider:jwks')
+        dic['jwks_uri'] = site_url + reverse('oidc_provider:jwks')
 
         dic['id_token_signing_alg_values_supported'] = ['HS256', 'RS256']
 

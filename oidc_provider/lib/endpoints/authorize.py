@@ -1,3 +1,4 @@
+from datetime import timedelta
 import logging
 try:
     from urllib import urlencode
@@ -7,10 +8,23 @@ except ImportError:
 
 from django.utils import timezone
 
-from oidc_provider.lib.errors import *
-from oidc_provider.lib.utils.params import *
-from oidc_provider.lib.utils.token import *
-from oidc_provider.models import *
+from oidc_provider.lib.claims import StandardScopeClaims
+from oidc_provider.lib.errors import (
+    AuthorizeError,
+    ClientIdError,
+    RedirectUriError,
+)
+from oidc_provider.lib.utils.params import Params
+from oidc_provider.lib.utils.token import (
+    create_code,
+    create_id_token,
+    create_token,
+    encode_id_token,
+)
+from oidc_provider.models import (
+    Client,
+    UserConsent,
+)
 from oidc_provider import settings
 
 
@@ -34,7 +48,7 @@ class AuthorizeEndpoint(object):
             self.grant_type = None
 
         # Determine if it's an OpenID Authentication request (or OAuth2).
-        self.is_authentication = 'openid' in self.params.scope 
+        self.is_authentication = 'openid' in self.params.scope
 
     def _extract_params(self):
         """
@@ -53,7 +67,7 @@ class AuthorizeEndpoint(object):
         self.params.response_type = query_dict.get('response_type', '')
         self.params.scope = query_dict.get('scope', '').split()
         self.params.state = query_dict.get('state', '')
-        
+
         self.params.nonce = query_dict.get('nonce', '')
         self.params.prompt = query_dict.get('prompt', '')
         self.params.code_challenge = query_dict.get('code_challenge', '')
@@ -113,41 +127,47 @@ class AuthorizeEndpoint(object):
                     is_authentication=self.is_authentication,
                     code_challenge=self.params.code_challenge,
                     code_challenge_method=self.params.code_challenge_method)
-                
+
                 code.save()
 
                 query_params['code'] = code.code
                 query_params['state'] = self.params.state if self.params.state else ''
 
             elif self.grant_type == 'implicit':
-                # We don't need id_token if it's an OAuth2 request.
-                if self.is_authentication:
-                    id_token_dic = create_id_token(
-                        user=self.request.user,
-                        aud=self.client.client_id,
-                        nonce=self.params.nonce,
-                        request=self.request)
-                    query_fragment['id_token'] = encode_id_token(id_token_dic, self.client)
-                else:
-                    id_token_dic = {}
-
                 token = create_token(
                     user=self.request.user,
                     client=self.client,
-                    id_token_dic=id_token_dic,
                     scope=self.params.scope)
-
-                # Store the token.
-                token.save()
-
-                query_fragment['token_type'] = 'bearer'
-                # TODO: Create setting 'OIDC_TOKEN_EXPIRE'.
-                query_fragment['expires_in'] = 60 * 10
 
                 # Check if response_type is an OpenID request with value 'id_token token'
                 # or it's an OAuth2 Implicit Flow request.
                 if self.params.response_type in ['id_token token', 'token']:
                     query_fragment['access_token'] = token.access_token
+
+                # We don't need id_token if it's an OAuth2 request.
+                if self.is_authentication:
+                    kwargs = {
+                        "user": self.request.user,
+                        "aud": self.client.client_id,
+                        "nonce": self.params.nonce,
+                        "request": self.request
+                    }
+                    # Include at_hash when access_token is being returned.
+                    if 'access_token' in query_fragment:
+                        kwargs['at_hash'] = token.at_hash
+                    id_token_dic = create_id_token(**kwargs)
+                    query_fragment['id_token'] = encode_id_token(id_token_dic, self.client)
+                    token.id_token = id_token_dic
+                else:
+                    id_token_dic = {}
+
+                # Store the token.
+                token.id_token = id_token_dic
+                token.save()
+
+                query_fragment['token_type'] = 'bearer'
+                # TODO: Create setting 'OIDC_TOKEN_EXPIRE'.
+                query_fragment['expires_in'] = 60 * 10
 
                 query_fragment['state'] = self.params.state if self.params.state else ''
 
@@ -169,18 +189,24 @@ class AuthorizeEndpoint(object):
 
         Return None.
         """
-        expires_at = timezone.now() + timedelta(
+        date_given = timezone.now()
+        expires_at = date_given + timedelta(
             days=settings.get('OIDC_SKIP_CONSENT_EXPIRE'))
 
         uc, created = UserConsent.objects.get_or_create(
             user=self.request.user,
             client=self.client,
-            defaults={'expires_at': expires_at})
+            defaults={
+                'expires_at': expires_at,
+                'date_given': date_given,
+            }
+        )
         uc.scope = self.params.scope
 
-        # Rewrite expires_at if object already exists.
+        # Rewrite expires_at and date_given if object already exists.
         if not created:
             uc.expires_at = expires_at
+            uc.date_given = date_given
 
         uc.save()
 
@@ -201,3 +227,19 @@ class AuthorizeEndpoint(object):
             pass
 
         return value
+
+    def get_scopes_information(self):
+        """
+        Return a list with the description of all the scopes requested.
+        """
+        scopes = StandardScopeClaims.get_scopes_info(self.params.scope)
+        if settings.get('OIDC_EXTRA_SCOPE_CLAIMS'):
+            scopes_extra = settings.get('OIDC_EXTRA_SCOPE_CLAIMS', import_str=True).get_scopes_info(self.params.scope)
+            for index_extra, scope_extra in enumerate(scopes_extra):
+                for index, scope in enumerate(scopes[:]):
+                    if scope_extra['scope'] == scope['scope']:
+                        del scopes[index]
+        else:
+            scopes_extra = []
+
+        return scopes + scopes_extra

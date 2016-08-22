@@ -54,11 +54,22 @@ OpenID Connect Clients will use scope values to specify what access privileges a
 
 `Here <http://openid.net/specs/openid-connect-core-1_0.html#ScopeClaims>`_ you have the standard scopes defined by the protocol.
 
+You can create or modify scopes using:
+
+* ``info_scopename`` class property for setting the verbose name and description.
+* ``scope_scopename`` method for returning some information related.
+
 Check out an example of how to implement it::
 
+    from django.utils.translation import ugettext as _
     from oidc_provider.lib.claims import ScopeClaims
 
     class MyAppScopeClaims(ScopeClaims):
+
+        info_books = (
+            _(u'Books'), # Verbose name of the scope.
+            _(u'Access to your books.'), # Description of the scope.
+        )
 
         def scope_books(self):
             # Here, for example, you can search books for this user.
@@ -72,11 +83,14 @@ Check out an example of how to implement it::
 
             return dic
 
-You can create our own scopes using the convention:
+        # If you want to change the description of the profile scope, you can redefine it.
+        info_profile = (
+            _(u'Profile'),
+            _(u'Another description.'),
+        )
 
-``def scope_somename(self):``
-
-If a field is empty or ``None`` will be cleaned from the response.
+.. note::
+    If a field is empty or ``None`` inside the dictionary your return on ``scope_scopename`` method, it will be cleaned from the response.
 
 OIDC_IDTOKEN_EXPIRE
 ===================
@@ -93,9 +107,9 @@ OPTIONAL. ``str`` or ``(list, tuple)``.
 A string with the location of your function hook or ``list`` or ``tuple`` with hook functions.
 Here you can add extra dictionary values specific for your app into id_token.
 
-The ``list`` or ``tuple`` is useful when You want to set multiple hooks, i.e. one for permissions and second for some special field.
+The ``list`` or ``tuple`` is useful when you want to set multiple hooks, i.e. one for permissions and second for some special field.
 
-The function receives a ``id_token`` dictionary and ``user`` instance 
+The function receives a ``id_token`` dictionary and ``user`` instance
 and returns it with additional fields.
 
 Default is::
@@ -148,4 +162,21 @@ Expressed in seconds. Default is ``60*60``.
 OIDC_USERINFO
 =============
 
-OPTIONAL. ``str``. A string with the location of your class. Read **Standard Claims** section.
+OPTIONAL. ``str``. A string with the location of your function. Read **Standard Claims** section.
+
+The function receives a ``claims`` dictionary with all the standard claims and ``user`` instance. Must returns the ``claims`` dict again.
+
+Example usage::
+
+    def userinfo(claims, user):
+
+        claims['name'] = '{0} {1}'.format(user.first_name, user.last_name)
+        claims['given_name'] = user.first_name
+        claims['family_name'] = user.last_name
+        claims['email'] = user.email
+        claims['address']['street_address'] = '...'
+
+        return claims
+
+.. note::
+    Please **DO NOT** add extra keys or delete the existing ones in the ``claims`` dict. If you want to add extra claims to some scopes you can use the ``OIDC_EXTRA_SCOPE_CLAIMS`` setting.

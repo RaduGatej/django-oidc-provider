@@ -1,9 +1,13 @@
-from django.conf.urls import patterns, include, url
+from django.conf.urls import url
 from django.views.decorators.csrf import csrf_exempt
-from oidc_provider.views import *
+from oidc_provider import views
 
 
 urlpatterns = [
+    url(r'^authorize/?$', views.AuthorizeView.as_view(), name='authorize'),
+    url(r'^token/?$', csrf_exempt(views.TokenView.as_view()), name='token'),
+    url(r'^userinfo/?$', csrf_exempt(views.userinfo), name='userinfo'),
+    url(r'^logout/?$', views.LogoutView.as_view(), name='logout'),
 
     url(r'^authorize/?$', AuthorizeView.as_view(), name='authorize'),
     url(r'^token/?$', csrf_exempt(TokenView.as_view()), name='token'),
@@ -11,7 +15,6 @@ urlpatterns = [
     url(r'^token_info/?$', csrf_exempt(TokenInfoView.as_view()), name='token_info'),
     url(r'^logout/?$', LogoutView.as_view(), name='logout'),
 
-    url(r'^\.well-known/openid-configuration/?$', ProviderInfoView.as_view(), name='provider_info'),
-    url(r'^jwks/?$', JwksView.as_view(), name='jwks'),
-
+    url(r'^\.well-known/openid-configuration/?$', views.ProviderInfoView.as_view(), name='provider_info'),
+    url(r'^jwks/?$', views.JwksView.as_view(), name='jwks'),
 ]

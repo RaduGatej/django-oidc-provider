@@ -4,8 +4,33 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+##### Added
+- Support for Django 1.10.
+- Initial translation files (ES, FR).
+- Support for at_hash parameter.
+
+### [0.3.6] - 2016-07-07
+
+##### Changed
+- OIDC_USERINFO setting.
+
+### [0.3.5] - 2016-06-21
+
+##### Added
+- Field date_given in UserConsent model.
+- Verbose names to all model fields.
+- Customize scopes names and descriptions on authorize template.
+
+##### Changed
+- OIDC_EXTRA_SCOPE_CLAIMS setting.
+
+### [0.3.4] - 2016-06-10
+
 ##### Changed
 - Make SITE_URL setting optional.
+
+##### Fixed
+- Missing migration.
 
 ### [0.3.3] - 2016-05-03
 
